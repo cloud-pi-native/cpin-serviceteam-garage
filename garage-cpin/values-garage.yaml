@@ -25,7 +25,7 @@ garage:
   persistence:
     meta:
 #      storageClass: "openebs-hostpath"
-      size: 100Mi
+      size: 1Gi
     data:
 #      storageClass: "openebs-hostpath"
       size: 1Gi
