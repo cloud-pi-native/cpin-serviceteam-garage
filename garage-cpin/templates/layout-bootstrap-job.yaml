@@ -1,0 +1,99 @@
+{{- if .Values.layoutBootstrap.enabled }}
+{{- $garageFullname := include "cpin-garage.garageFullname" . }}
+{{- $replicas := int (.Values.garage.deployment.replicaCount | default 1) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cpin-garage.layoutBootstrap.name" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "cpin-garage.layoutBootstrap.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "cpin-garage.layoutBootstrap.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "cpin-garage.layoutBootstrap.serviceAccountName" . }}
+      containers:
+        - name: layout-bootstrap
+          image: "{{ .Values.layoutBootstrap.image.repository }}:{{ .Values.layoutBootstrap.image.tag }}"
+          imagePullPolicy: {{ .Values.layoutBootstrap.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.layoutBootstrap.resources | nindent 12 }}
+          env:
+            - name: GARAGE_NS
+              value: {{ .Release.Namespace | quote }}
+            - name: GARAGE_FULLNAME
+              value: {{ $garageFullname | quote }}
+            - name: GARAGE_REPLICAS
+              value: {{ $replicas | quote }}
+            - name: GARAGE_ZONE
+              value: {{ .Values.layoutBootstrap.zone | quote }}
+            - name: GARAGE_CAPACITY
+              value: {{ .Values.layoutBootstrap.capacity | quote }}
+            - name: GARAGE_CONTAINER
+              value: "garage"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              echo "[+] Namespace: $GARAGE_NS"
+              echo "[+] StatefulSet prefix: $GARAGE_FULLNAME"
+              echo "[+] Replicas: $GARAGE_REPLICAS"
+              echo "[+] Zone: $GARAGE_ZONE capacity: $GARAGE_CAPACITY"
+
+              i=0
+              while [ "$i" -lt "$GARAGE_REPLICAS" ]; do
+                POD="${GARAGE_FULLNAME}-${i}"
+                echo "[+] Waiting for $POD to be Ready..."
+                while true; do
+                  READY=$(kubectl -n "$GARAGE_NS" get pod "$POD" -o jsonpath='{.status.containerStatuses[?(@.name=="'"$GARAGE_CONTAINER"'")].ready}' 2>/dev/null || true)
+                  if [ "$READY" = "true" ]; then
+                    break
+                  fi
+                  sleep 2
+                done
+                i=$((i + 1))
+              done
+
+              PRIMARY="${GARAGE_FULLNAME}-0"
+              echo "[+] Checking cluster status on $PRIMARY..."
+              STATUS=$(kubectl -n "$GARAGE_NS" exec -c "$GARAGE_CONTAINER" "$PRIMARY" -- /garage status)
+
+              if ! echo "$STATUS" | grep -q "NO ROLE ASSIGNED"; then
+                echo "[✓] Layout already applied. Skipping bootstrap."
+                exit 0
+              fi
+
+              echo "[+] Assigning roles to nodes with no layout..."
+              # Parse healthy-node lines that still have NO ROLE ASSIGNED (node id is column 1)
+              NODE_IDS=$(echo "$STATUS" | awk '
+                /^==== HEALTHY NODES ====/ { in_healthy=1; next }
+                /^====/ { in_healthy=0 }
+                in_healthy && /NO ROLE ASSIGNED/ { print $1 }
+              ')
+              for NODE_ID in $NODE_IDS; do
+                if [ -z "$NODE_ID" ] || [ "$NODE_ID" = "ID" ]; then
+                  continue
+                fi
+                echo "[+] layout assign -z $GARAGE_ZONE -c $GARAGE_CAPACITY $NODE_ID"
+                kubectl -n "$GARAGE_NS" exec -c "$GARAGE_CONTAINER" "$PRIMARY" -- \
+                  /garage layout assign -z "$GARAGE_ZONE" -c "$GARAGE_CAPACITY" "$NODE_ID"
+              done
+
+              echo "[+] Applying layout version 1..."
+              kubectl -n "$GARAGE_NS" exec -c "$GARAGE_CONTAINER" "$PRIMARY" -- \
+                /garage layout apply --version 1
+
+              echo "[✓] Layout applied successfully"
+{{- end }}

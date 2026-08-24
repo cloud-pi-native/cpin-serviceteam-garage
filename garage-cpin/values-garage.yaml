@@ -1,3 +1,38 @@
+layoutBootstrap:
+  enabled: true
+  zone: dc1
+  capacity: 1G
+  image:
+    repository: alpine/k8s
+    tag: "1.35.6"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+bucketBootstrap:
+  enabled: true
+  suspend: true
+  schedule: "0 0 1 1 *"
+  bucket: default-bucket
+  keyName: default-app-key
+  secretName: myapp-s3-credentials
+  image:
+    repository: alpine/k8s
+    tag: "1.35.6"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 garage:
   initResources:
     requests:
@@ -14,12 +49,14 @@ garage:
       cpu: 500m
       memory: 512Mi
   garage:
+    rbac:
+      clusterScoped: false
     # Use only 2 replicas per object
-    replicationFactor: 2
+    replicationFactor: 1
     kubernetesSkipCrd: true
   # Start 4 instances (StatefulSets) of garage
   deployment:
-    replicaCount: 2
+    replicaCount: 1
 
   # Override default storage class and size
   persistence:
@@ -39,7 +76,7 @@ garage:
 #          cert-manager.io/cluster-issuer: "letsencrypt-prod"
 #          nginx.ingress.kubernetes.io/proxy-body-size: 500m
         hosts:
-          - host: garage-cpin.app.cpin.numerique-interieur.fr
+          - host: s3customdomain.app.cpin.numerique-interieur.fr
             paths:
               - path: /
                 pathType: Prefix

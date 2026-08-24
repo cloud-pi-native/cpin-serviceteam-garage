@@ -1,0 +1,46 @@
+{{- if .Values.bucketBootstrap.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cpin-garage.bucketBootstrap.serviceAccountName" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cpin-garage.bucketBootstrap.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
