@@ -1,0 +1,113 @@
+{{- if .Values.bucketBootstrap.enabled }}
+{{- $garageFullname := include "cpin-garage.garageFullname" . }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  suspend: {{ .Values.bucketBootstrap.suspend }}
+  schedule: {{ .Values.bucketBootstrap.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "cpin-garage.bucketBootstrap.name" . }}
+            app.kubernetes.io/instance: {{ .Release.Name }}
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ include "cpin-garage.bucketBootstrap.serviceAccountName" . }}
+          containers:
+            - name: bucket-bootstrap
+              image: "{{ .Values.bucketBootstrap.image.repository }}:{{ .Values.bucketBootstrap.image.tag }}"
+              imagePullPolicy: {{ .Values.bucketBootstrap.image.pullPolicy }}
+              resources:
+                {{- toYaml .Values.bucketBootstrap.resources | nindent 16 }}
+              env:
+                - name: GARAGE_NS
+                  value: {{ .Release.Namespace | quote }}
+                - name: GARAGE_FULLNAME
+                  value: {{ $garageFullname | quote }}
+                - name: GARAGE_CONTAINER
+                  value: "garage"
+                - name: GARAGE_BUCKET
+                  value: {{ .Values.bucketBootstrap.bucket | quote }}
+                - name: GARAGE_KEY_NAME
+                  value: {{ .Values.bucketBootstrap.keyName | quote }}
+                - name: SECRET_NAME
+                  value: {{ .Values.bucketBootstrap.secretName | quote }}
+                - name: AWS_DEFAULT_REGION
+                  value: "garage"
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+
+                  echo "[+] Namespace: $GARAGE_NS"
+                  echo "[+] Secret: $SECRET_NAME"
+                  echo "[+] Bucket: $GARAGE_BUCKET key: $GARAGE_KEY_NAME"
+
+                  if kubectl -n "$GARAGE_NS" get secret "$SECRET_NAME" >/dev/null 2>&1; then
+                    echo "[✓] Secret $SECRET_NAME already exists. Skipping bootstrap."
+                    exit 0
+                  fi
+
+                  PRIMARY="${GARAGE_FULLNAME}-0"
+                  echo "[+] Waiting for $PRIMARY to be Ready..."
+                  while true; do
+                    READY=$(kubectl -n "$GARAGE_NS" get pod "$PRIMARY" -o jsonpath='{.status.containerStatuses[?(@.name=="'"$GARAGE_CONTAINER"'")].ready}' 2>/dev/null || true)
+                    if [ "$READY" = "true" ]; then
+                      break
+                    fi
+                    sleep 2
+                  done
+
+                  garage() {
+                    kubectl -n "$GARAGE_NS" exec -c "$GARAGE_CONTAINER" "$PRIMARY" -- /garage "$@"
+                  }
+
+                  echo "[+] Creating bucket $GARAGE_BUCKET (ignore if it already exists)..."
+                  if garage bucket info "$GARAGE_BUCKET" >/dev/null 2>&1; then
+                    echo "[+] Bucket already exists."
+                  else
+                    garage bucket create "$GARAGE_BUCKET"
+                  fi
+
+                  echo "[+] Creating API key $GARAGE_KEY_NAME..."
+                  if garage key info "$GARAGE_KEY_NAME" >/dev/null 2>&1; then
+                    echo "[✗] Key $GARAGE_KEY_NAME already exists; secret is only shown at creation." >&2
+                    echo "[✗] Delete the key or create the Secret manually, then retry." >&2
+                    exit 1
+                  fi
+
+                  KEY_OUT=$(garage key create "$GARAGE_KEY_NAME")
+                  echo "$KEY_OUT"
+                  ACCESS_KEY=$(echo "$KEY_OUT" | awk -F': ' '/Key ID:/ {print $2}' | tr -d '\r' | awk 'NF{print; exit}')
+                  SECRET_KEY=$(echo "$KEY_OUT" | awk -F': ' '/Secret key:/ {print $2}' | tr -d '\r' | awk 'NF{print; exit}')
+
+                  if [ -z "$ACCESS_KEY" ] || [ -z "$SECRET_KEY" ]; then
+                    echo "[✗] Failed to parse Key ID / Secret key from garage key create output." >&2
+                    exit 1
+                  fi
+
+                  echo "[+] Granting read/write/owner on $GARAGE_BUCKET to $GARAGE_KEY_NAME..."
+                  garage bucket allow --read --write --owner "$GARAGE_BUCKET" --key "$GARAGE_KEY_NAME"
+
+                  echo "[+] Creating Kubernetes secret $SECRET_NAME..."
+                  kubectl -n "$GARAGE_NS" create secret generic "$SECRET_NAME" \
+                    --from-literal=AWS_ACCESS_KEY_ID="$ACCESS_KEY" \
+                    --from-literal=AWS_SECRET_ACCESS_KEY="$SECRET_KEY" \
+                    --from-literal=BUCKET="$GARAGE_BUCKET" \
+                    --from-literal=AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION"
+
+                  echo "[✓] Bucket, key, and secret created"
+{{- end }}
