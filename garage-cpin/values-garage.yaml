@@ -1,16 +1,16 @@
 garage:
   initResources:
-    request:
+    requests:
       cpu: 100m
       memory: 128Mi
     limit:
       cpu: 500m
       memory: 512Mi
   resources:
-    request:
+    requests:
       cpu: 100m
       memory: 128Mi
-    limit:
+    limits:
       cpu: 500m
       memory: 512Mi
   garage:
