@@ -1,0 +1,45 @@
+garage:
+  initResources:
+    request:
+      cpu: 100m
+      memory: 128Mi
+    limit:
+      cpu: 500m
+      memory: 512Mi
+  resources:
+    request:
+      cpu: 100m
+      memory: 128Mi
+    limit:
+      cpu: 500m
+      memory: 512Mi
+  garage:
+    # Use only 2 replicas per object
+    replicationFactor: 2
+    kubernetesSkipCrd: true
+  # Start 4 instances (StatefulSets) of garage
+  deployment:
+    replicaCount: 2
+
+  # Override default storage class and size
+  persistence:
+    meta:
+#      storageClass: "openebs-hostpath"
+      size: 100Mi
+    data:
+#      storageClass: "openebs-hostpath"
+      size: 1Gi
+
+  ingress:
+    s3:
+      api:
+        enabled: true
+#        className: "public"
+#        annotations:
+#          cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#          nginx.ingress.kubernetes.io/proxy-body-size: 500m
+        hosts:
+          - host: garage-cpin.app.cpin.numerique-interieur.fr
+            paths:
+              - path: /
+                pathType: Prefix

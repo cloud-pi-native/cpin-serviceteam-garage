@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cpin-garage
+description: Déploiement de l"outil garage - S3-compatible object store for small self-hosted geo-distributed deployments. Ce chart est donné "à titre d'exemple et aucun support n'est assuré par la ServiceTeam"
+type: application
+version: 0.0.1
+appVersion: "v1.0.0"
+
+sources:
+- https://git.deuxfleurs.fr/Deuxfleurs/garage.git
+
+dependencies:
+- name: garage
+  alias: garage
+  repository: file://../garage-origine
+  version: 0.9.4
+
+maintainers: []
