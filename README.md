@@ -1,5 +1,9 @@
 # Mock S3 avec Garage (CPIN)
 
+## Notes sur ce repo
+
+> Ce chart est fourni en l'état et sans support. Son but est présenter un service compatible S3 en remplacement de MinIO. Ce chart peut être utilisé par les projets sur l'environnement d'accélération. Il doit être adapté et approprié par les projets. Il est donné afin de faciliter l'intégration de cette solution dans un contexte CPiN mais ne se veut pas être un produit "production ready".
+
 Ce dépôt déploie [Garage](https://garagehq.deuxfleurs.fr/) comme **mock S3** pour CPIN : une API compatible S3, sans AWS ni MinIO.
 
 Le chart [`garage-cpin`](garage-cpin/Chart.yaml) enveloppe le sous-chart [`garage-origine`](garage-origine/) (clone du chart Helm [Deuxfleurs](https://git.deuxfleurs.fr/Deuxfleurs/garage), ClusterRoles non utilisés retirés).
@@ -9,7 +13,7 @@ Le profil CPIN est dans [`garage-cpin/values-garage.yaml`](garage-cpin/values-ga
 - 1 réplica, `replicationFactor: 1`
 - RBAC limité au namespace (`clusterScoped: false`)
 - pas d’installation de CRD cluster (`kubernetesSkipCrd: true`)
-- ingress S3 (A Modifier) : `s3customdomain.app.cpin.numerique-interieur.fr`
+- ingress S3 (A Modifier) : `s3customdomain.<suffix-environnement-cpin>`
 
 ## Architecture
 
@@ -32,7 +36,16 @@ sequenceDiagram
   App->>Secret: credentials
 ```
 
-## Hook layout (`layout-bootstrap`)
+## Specificité CPiN
+
+Dans la documentation garage : [https://garagehq.deuxfleurs.fr/documentation/quick-start/#creating-a-cluster-layout](https://garagehq.deuxfleurs.fr/documentation/quick-start/#creating-a-cluster-layout), des commandes doivent être exécutées afin de créer un bucket et des AK/SK correspondantes. Ces opérations ne pouvant être réalisées dans un contexte CPiN, le chart garage-cpin permet de réaliser ces opérations via des job/cronjob.
+
+### Intégration de garage à CPiN.
+
+Ajouter ce repo comme repo d'infrastructure aux ressources de son projet.
+
+
+### Hook layout (`layout-bootstrap`)
 
 Fichiers : [`garage-cpin/templates/layout-bootstrap-job.yaml`](garage-cpin/templates/layout-bootstrap-job.yaml), [`garage-cpin/templates/layout-bootstrap-rbac.yaml`](garage-cpin/templates/layout-bootstrap-rbac.yaml).
 
@@ -43,7 +56,7 @@ Un Job ArgoCD **PostSync** (`argocd.argoproj.io/hook: PostSync`, recréé à cha
 3. Si des nœuds ont `NO ROLE ASSIGNED` : `layout assign` (zone `dc1`, capacité `1G`) puis `layout apply --version 1`.
 4. Si le layout est déjà en place, le Job s’arrête sans rien modifier.
 
-## CronJob bucket (`bucket-bootstrap`)
+### CronJob bucket (`bucket-bootstrap`)
 
 Fichiers : [`garage-cpin/templates/bucket-bootstrap-cronjob.yaml`](garage-cpin/templates/bucket-bootstrap-cronjob.yaml), [`garage-cpin/templates/bucket-bootstrap-rbac.yaml`](garage-cpin/templates/bucket-bootstrap-rbac.yaml).
 
@@ -57,6 +70,6 @@ Comportement :
 
 Il est possible de modifier les valeurs puis de relancer le Job via Create Job pour créer un nouveau bucket et une nouvelle clé.
 
-## Consommation S3
+### Consommation S3
 
 Les applications lisent le Secret `myapp-s3-credentials` et appellent l’API S3 via l’ingress, région `garage`.
